@@ -79,9 +79,9 @@ async def worldbank_indicator(
 # ---------------------------------------------------------------------------
 @app.get("/api/comtrade/trade")
 async def comtrade_trade(
-    reporter: str = Query("356", description="Reporter country code, 356 = India"),
+    reporter: str = Query("699", description="Reporter country code, 699 = India"),
     partner: str = Query("0", description="Partner country code, 0 = World"),
-    period: str = Query("2023", description="Year, e.g. 2023"),
+    period: str = Query("2022", description="Year, e.g. 2022"),
     flow: str = Query("M", description="M = imports, X = exports"),
     cmd_code: str = Query("TOTAL", description="Commodity code, TOTAL = all commodities"),
 ):
@@ -104,8 +104,16 @@ async def comtrade_trade(
         "subscription-key": COMTRADE_KEY,
     }
 
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(url, params=params)
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.get(url, params=params)
+    except httpx.ReadTimeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Comtrade API timed out. It can be slow at times — try again in a moment.",
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=502, detail=f"Comtrade API request failed: {str(e)}")
 
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=f"Comtrade API error: {resp.text}")
