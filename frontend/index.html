@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MoneyTrace India</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121821;
+    --panel-border: #1f2a37;
+    --accent: #3ddc97;
+    --accent2: #4f8ef7;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+  header {
+    padding: 24px 32px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+  header h1 { margin: 0; font-size: 22px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    min-height: calc(100vh - 90px);
+  }
+  nav {
+    border-right: 1px solid var(--panel-border);
+    padding: 20px;
+  }
+  nav button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    padding: 10px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+  nav button.active, nav button:hover {
+    background: var(--panel);
+    color: var(--text);
+  }
+
+  main { padding: 28px; }
+  .controls {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 20px;
+  }
+  select, input {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  button.action {
+    background: var(--accent2);
+    border: none;
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  .panel h3 { margin-top: 0; font-size: 15px; color: var(--muted); }
+  .status {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .status.error { color: #f76e6e; }
+  canvas { max-height: 380px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>MoneyTrace India</h1>
+  <p>Trade flows &amp; public fund tracking — World Bank / UN Comtrade / data.gov.in</p>
+</header>
+
+<div class="layout">
+  <nav>
+    <button class="tab-btn active" data-tab="macro">Macro Indicators</button>
+    <button class="tab-btn" data-tab="trade">Trade Flows</button>
+    <button class="tab-btn" data-tab="budget">Budget / Schemes</button>
+  </nav>
+
+  <main>
+    <!-- MACRO TAB -->
+    <section id="tab-macro">
+      <div class="panel">
+        <h3>World Bank Indicator (India)</h3>
+        <div class="controls">
+          <select id="indicatorSelect">
+            <option value="NY.GDP.MKTP.CD">GDP (current US$)</option>
+            <option value="FP.CPI.TOTL.ZG">Inflation, CPI (annual %)</option>
+            <option value="SL.UEM.TOTL.ZS">Unemployment (% of labor force)</option>
+            <option value="NE.TRD.GNFS.ZS">Trade (% of GDP)</option>
+            <option value="BX.KLT.DINV.CD.WD">FDI, net inflows (US$)</option>
+          </select>
+          <button class="action" onclick="loadMacro()">Load</button>
+        </div>
+        <canvas id="macroChart"></canvas>
+        <div id="macroStatus" class="status"></div>
+      </div>
+    </section>
+
+    <!-- TRADE TAB -->
+    <section id="tab-trade" style="display:none;">
+      <div class="panel">
+        <h3>UN Comtrade — India Trade Flow</h3>
+        <div class="controls">
+          <select id="flowSelect">
+            <option value="M">Imports</option>
+            <option value="X">Exports</option>
+          </select>
+          <input id="periodInput" type="text" value="2023" placeholder="Year e.g. 2023">
+          <button class="action" onclick="loadTrade()">Load</button>
+        </div>
+        <div id="tradeOutput" class="status"></div>
+      </div>
+    </section>
+
+    <!-- BUDGET TAB -->
+    <section id="tab-budget" style="display:none;">
+      <div class="panel">
+        <h3>data.gov.in — Budget / Scheme Resource</h3>
+        <div class="controls">
+          <input id="resourceIdInput" type="text" placeholder="Resource ID from data.gov.in" style="width:320px;">
+          <button class="action" onclick="loadBudget()">Load</button>
+        </div>
+        <div id="budgetOutput" class="status"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  const API_BASE = "http://localhost:8000"; // change if backend runs elsewhere
+
+  // Tab switching
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.querySelectorAll("main > section").forEach(s => s.style.display = "none");
+      document.getElementById("tab-" + btn.dataset.tab).style.display = "block";
+    });
+  });
+
+  let macroChartInstance = null;
+
+  async function loadMacro() {
+    const indicator = document.getElementById("indicatorSelect").value;
+    const statusEl = document.getElementById("macroStatus");
+    statusEl.textContent = "Loading...";
+    statusEl.className = "status";
+    try {
+      const res = await fetch(`${API_BASE}/api/worldbank/IN/${indicator}`);
+      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const data = await res.json();
+      const labels = data.series.map(d => d.year);
+      const values = data.series.map(d => d.value);
+
+      if (macroChartInstance) macroChartInstance.destroy();
+      const ctx = document.getElementById("macroChart").getContext("2d");
+      macroChartInstance = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [{
+            label: indicator,
+            data: values,
+            borderColor: "#3ddc97",
+            backgroundColor: "rgba(61,220,151,0.1)",
+            tension: 0.3,
+            fill: true,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { labels: { color: "#e6edf3" } } },
+          scales: {
+            x: { ticks: { color: "#8b98a5" }, grid: { color: "#1f2a37" } },
+            y: { ticks: { color: "#8b98a5" }, grid: { color: "#1f2a37" } }
+          }
+        }
+      });
+      statusEl.textContent = `Loaded ${data.series.length} data points.`;
+    } catch (err) {
+      statusEl.textContent = "Error: " + err.message;
+      statusEl.className = "status error";
+    }
+  }
+
+  async function loadTrade() {
+    const flow = document.getElementById("flowSelect").value;
+    const period = document.getElementById("periodInput").value;
+    const out = document.getElementById("tradeOutput");
+    out.textContent = "Loading...";
+    out.className = "status";
+    try {
+      const res = await fetch(`${API_BASE}/api/comtrade/trade?flow=${flow}&period=${period}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `API error ${res.status}`);
+      out.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      out.textContent = "Error: " + err.message;
+      out.className = "status error";
+    }
+  }
+
+  async function loadBudget() {
+    const resourceId = document.getElementById("resourceIdInput").value.trim();
+    const out = document.getElementById("budgetOutput");
+    if (!resourceId) { out.textContent = "Enter a resource ID first."; return; }
+    out.textContent = "Loading...";
+    out.className = "status";
+    try {
+      const res = await fetch(`${API_BASE}/api/datagovin/${resourceId}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || `API error ${res.status}`);
+      out.textContent = JSON.stringify(data, null, 2);
+    } catch (err) {
+      out.textContent = "Error: " + err.message;
+      out.className = "status error";
+    }
+  }
+
+  // Load default view on start
+  loadMacro();
+</script>
+
+</body>
+</html>
